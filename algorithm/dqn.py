@@ -1,10 +1,47 @@
 from gym import spaces
 import numpy as np
-
+import random
 from models import DQN, ReplayBuffer
 import torch
 import torch.nn.functional as F
 
+
+def train_dqn(agent, env, hyper_params):
+    state = env.reset()
+    loss = 0
+    eps_timesteps = hyper_params["eps-fraction"] * \
+        float(hyper_params["num-steps"])
+    episode_rewards = [0.0, 0.0]
+    for t in range(hyper_params["num-steps"]):
+        fraction = min(1.0, float(t) / eps_timesteps)
+        eps_threshold = hyper_params["eps-start"] + fraction * \
+            (hyper_params["eps-end"] - hyper_params["eps-start"])
+        sample = random.random()
+
+        if(sample > eps_threshold):
+            action = agent.act(state)
+        else:
+            action = env.action_space.sample()
+        
+        next_state, reward, done, _, info = env.step(action)
+        agent.memory.add(state, action, reward, next_state, float(done))
+        state = next_state
+        episode_rewards[-1] += reward
+        if done:
+            state = env.reset()
+            episode_rewards.append(0.0)
+
+        if t > hyper_params["learning-starts"] and t % hyper_params["learning-freq"] == 0:
+            loss = agent.optimise_td_loss()
+
+        if t > hyper_params["learning-starts"] and t % hyper_params["target-update-freq"] == 0:
+            agent.update_target_network()
+
+        num_episodes = len(episode_rewards) - 1
+        print(f' [Episode {num_episodes}] [Step {t}/{hyper_params["num-steps"]} Reward] : {episode_rewards[-1]} | [Max Reward] : {max(episode_rewards[:-1])} | [Action] : {action} | [Loss] : {loss:.4f} | [Eps] : {eps_threshold:.4f}'"\r", end="", flush=True)
+        
+    print('\n')
+    
 
 class DQNAgent:
     def __init__(self,
