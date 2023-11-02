@@ -73,15 +73,15 @@ class DQN(nn.Module):
         assert type(
             action_space) == spaces.Discrete, 'action_space must be of type Discrete'
         
-        self.conv = nn.Sequential(
+        self.encoder = nn.Sequential(
             nn.Conv2d(in_channels=observation_space.shape[0], out_channels=32, kernel_size=8, stride=4),
             nn.ReLU(),
             nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2),
             nn.ReLU(),
             nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1),
-            nn.ReLU()
+            nn.LeakyReLU(0.01)
         )
-
+        self.proj = nn.Linear(in_features=64*7*7, out_features=512)
         self.fc = nn.Sequential(
             nn.Linear(in_features=64*7*7 , out_features=512),
             nn.ReLU(),
@@ -89,5 +89,6 @@ class DQN(nn.Module):
         )
 
     def forward(self, x):
-        conv_out = self.conv(x).view(x.size()[0],-1)
-        return self.fc(conv_out)
+        conv_out = self.encoder(x).view(x.size()[0],-1)
+        proj = self.proj(conv_out)
+        return self.fc(conv_out), F.normalize(proj, p=2, dim=1)

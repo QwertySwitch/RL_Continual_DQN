@@ -18,11 +18,14 @@ def train_dqn(agent, env, hyper_params):
             (hyper_params["eps-end"] - hyper_params["eps-start"])
         sample = random.random()
 
-        if(sample > eps_threshold):
+        if sample > eps_threshold:
             action = agent.act(state)
         else:
             action = env.action_space.sample()
-        
+        '''try:
+            next_state, reward, done, _, info = env.step(action)
+        except:
+            action = env.action_space.sample()'''
         next_state, reward, done, _, info = env.step(action)
         agent.memory.add(state, action, reward, next_state, float(done))
         state = next_state
@@ -83,14 +86,16 @@ class DQNAgent:
 
         with torch.no_grad():
             if self.use_double_dqn:
-                _, max_next_action = self.policy_network(next_states).max(1)
-                max_next_q_values = self.target_network(next_states).gather(1, max_next_action.unsqueeze(1)).squeeze()
+                next_action, _ = self.policy_network(next_states) 
+                _, max_next_action = next_action.max(1)
+                next_q_values, _ = self.target_network(next_states)
+                max_next_q_values = next_q_values.gather(1, max_next_action.unsqueeze(1)).squeeze()
             else:
-                next_q_values = self.target_network(next_states)
-                max_next_q_values, _ = next_q_values.max(1)
+                next_q_values, _ = self.target_network(next_states)
+                max_next_q_values = next_q_values.max(1)[0].unsqueeze(1)
             target_q_values = rewards + (1 - dones) * self.gamma * max_next_q_values
 
-        input_q_values = self.policy_network(states)
+        input_q_values, _ = self.policy_network(states)
         input_q_values = input_q_values.gather(1, actions.unsqueeze(1)).squeeze()
 
         loss = F.mse_loss(input_q_values, target_q_values)
@@ -110,6 +115,6 @@ class DQNAgent:
         state = np.array(state) / 255.0
         state = torch.from_numpy(state).float().unsqueeze(0).to(device)
         with torch.no_grad():
-            q_values = self.policy_network(state)
+            q_values, _ = self.policy_network(state)
             _, action = q_values.max(1)
             return action.item()

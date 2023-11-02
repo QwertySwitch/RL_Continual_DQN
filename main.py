@@ -10,6 +10,10 @@ import torch
 import argparse
 from utils import *
 import sys
+import copy
+import warnings
+
+warnings.filterwarnings("ignore") 
 
 if __name__ == '__main__':
 
@@ -22,27 +26,26 @@ if __name__ == '__main__':
     args = parser.parse_args()
     # If you have a checkpoint file, spend less time exploring
     if(args.load_checkpoint_file):
-        eps_start= 0.01
+        eps_start= 0.025
     else:
         eps_start= 1
 
     hyper_params = {
         "seed": 42,  # which seed to use
-        "replay-buffer-size": int(5e3),  # replay buffer size
+        "replay-buffer-size": int(1e4),  # replay buffer size
         "learning-rate": 1e-4,  # learning rate for Adam optimizer
         "discount-factor": 0.99,  # discount factor
         "dqn_type":"neurips",
         # total number of steps to run the environment for
         "num-steps": int(1e6),
         "batch-size": 32,  # number of transitions to optimize at the same time
-        "learning-starts": 5000,  # number of steps before learning starts
-        "learning-freq": 1,  # number of iterations between every optimization step
+        "learning-starts": 10000,  # number of steps before learning starts
+        "learning-freq": 4,  # number of iterations between every optimization step
         "use-double-dqn": True,  # use double deep Q-learning
         "target-update-freq": 1000,  # number of iterations between every target network update
         "eps-start": eps_start,  # e-greedy start threshold
-        "eps-end": 0.01,  # e-greedy end threshold
+        "eps-end": 0.025,  # e-greedy end threshold
         "eps-fraction": 0.1,  # fraction of num-steps
-        "print-freq": 10
     }
 
     np.random.seed(hyper_params["seed"])
@@ -52,9 +55,14 @@ if __name__ == '__main__':
     
     agent = None
     for env_name in envs:
-        env = init_env(env_name)
+        env, a_s = init_env(env_name, False)
         if agent == None:
-            agent = init_agent(hyper_params, env, args)
+            agent = init_agent(hyper_params, a_s, env, args)
+        else:
+            '''prev_model = copy.deepcopy(agent.policy_network)
+            agent.policy_network = DQN(env.observation_space, a_s).cuda()
+            agent.policy_network.encoder.load_state_dict(prev_model.encoder.state_dict())
+            agent.target_network = copy.deepcopy(agent.policy_network)'''
             
         print(f"Training {env_name}")
         getattr(sys.modules[__name__], 'train_'+args.algorithm)(agent, env, hyper_params)
