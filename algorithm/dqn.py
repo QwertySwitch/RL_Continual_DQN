@@ -22,10 +22,6 @@ def train_dqn(agent, env, hyper_params):
             action = agent.act(state)
         else:
             action = env.action_space.sample()
-        '''try:
-            next_state, reward, done, _, info = env.step(action)
-        except:
-            action = env.action_space.sample()'''
         next_state, reward, done, _, info = env.step(action)
         agent.memory.add(state, action, reward, next_state, float(done))
         state = next_state
@@ -44,7 +40,7 @@ def train_dqn(agent, env, hyper_params):
         print(f' [Episode {num_episodes}] [Step {t}/{hyper_params["num-steps"]} Reward] : {episode_rewards[-1]} | [Max Reward] : {max(episode_rewards[:-1])} | [Action] : {action} | [Loss] : {loss:.4f} | [Eps] : {eps_threshold:.4f}'"\r", end="", flush=True)
         
     print('\n')
-    
+    return agent
 
 class DQNAgent:
     def __init__(self,
@@ -68,8 +64,8 @@ class DQNAgent:
         self.update_target_network()
         self.target_network.eval()
 
-        self.optimizer = torch.optim.RMSprop(self.policy_network.parameters()
-            , lr=lr)        
+        self.optimizer = torch.optim.Adam(self.policy_network.parameters()
+            , lr=0.0000625, eps=1.5e-4)        
         self.device = device
 
     def optimise_td_loss(self):
@@ -98,7 +94,7 @@ class DQNAgent:
         input_q_values, _ = self.policy_network(states)
         input_q_values = input_q_values.gather(1, actions.unsqueeze(1)).squeeze()
 
-        loss = F.mse_loss(input_q_values, target_q_values)
+        loss = F.smooth_l1_loss(input_q_values, target_q_values)
 
         self.optimizer.zero_grad()
         loss.backward()

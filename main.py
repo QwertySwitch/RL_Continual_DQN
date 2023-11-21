@@ -32,39 +32,37 @@ if __name__ == '__main__':
 
     hyper_params = {
         "seed": 42,  # which seed to use
-        "replay-buffer-size": int(1e4),  # replay buffer size
+        "replay-buffer-size": int(1e5),  # replay buffer size
         "learning-rate": 1e-4,  # learning rate for Adam optimizer
-        "discount-factor": 0.99,  # discount factor
+        "discount-factor": 0.95,  # discount factor
         "dqn_type":"neurips",
         # total number of steps to run the environment for
-        "num-steps": int(1e6),
+        "num-steps": int(2e5),
         "batch-size": 32,  # number of transitions to optimize at the same time
         "learning-starts": 10000,  # number of steps before learning starts
         "learning-freq": 4,  # number of iterations between every optimization step
         "use-double-dqn": True,  # use double deep Q-learning
-        "target-update-freq": 1000,  # number of iterations between every target network update
+        "target-update-freq": 5000,  # number of iterations between every target network update
         "eps-start": eps_start,  # e-greedy start threshold
         "eps-end": 0.025,  # e-greedy end threshold
-        "eps-fraction": 0.1,  # fraction of num-steps
+        "eps-fraction": 0.30,  # fraction of num-steps
+        "first":True,
     }
 
     np.random.seed(hyper_params["seed"])
     random.seed(hyper_params["seed"])
     
-    envs = ["ALE/Assault-v5", "ALE/Carnival-v5", "ALE/Centipede-v5", "ALE/DemonAttack-v5", "ALE/Phoenix-v5"]
+    envs = ["ALE/Assault-v5", "ALE/Carnival-v5", "ALE/Centipede-v5", "ALE/Phoenix-v5"]
     
     agent = None
     for env_name in envs:
-        env, a_s = init_env(env_name, False)
+        env, a_s = init_env(env_name, True)
         if agent == None:
-            agent = init_agent(hyper_params, a_s, env, args)
-        else:
-            '''prev_model = copy.deepcopy(agent.policy_network)
-            agent.policy_network = DQN(env.observation_space, a_s).cuda()
-            agent.policy_network.encoder.load_state_dict(prev_model.encoder.state_dict())
-            agent.target_network = copy.deepcopy(agent.policy_network)'''
-            
+            agent = init_agent(hyper_params, env.action_space, env, args)
+
         print(f"Training {env_name}")
-        getattr(sys.modules[__name__], 'train_'+args.algorithm)(agent, env, hyper_params)
-        test_all(agent, envs)
+        if env_name != envs[-1]:
+            agent = getattr(sys.modules[__name__], 'train_'+args.algorithm)(agent, env, hyper_params)
+            #test_agent = weight_updates_test(agent, a_s)
+            test_all(agent, envs)
         

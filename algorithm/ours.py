@@ -4,7 +4,7 @@ import random
 from models import DQN, ReplayBuffer
 import torch
 import torch.nn.functional as F
-
+import copy
 
 def train_ours(agent, env, hyper_params):
     state = env.reset()
@@ -22,9 +22,9 @@ def train_ours(agent, env, hyper_params):
             action = agent.act(state)
         else:
             action = env.action_space.sample()
-        
+        lives = env.ale.lives()
         next_state, reward, done, _, info = env.step(action)
-        agent.memory.add(state, action, reward, next_state, float(done))
+        agent.memory.add(state, action, reward, next_state, float(done) or (env.ale.lives() != lives))
         state = next_state
         episode_rewards[-1] += reward
         if done:
@@ -32,15 +32,23 @@ def train_ours(agent, env, hyper_params):
             episode_rewards.append(0.0)
 
         if t > hyper_params["learning-starts"] and t % hyper_params["learning-freq"] == 0:
-            loss = agent.optimise_td_loss()
+            if hyper_params["first"]:
+                loss = agent.fr_optimise_loss()
+            else:
+                loss = agent.ar_optimise_loss()
 
         if t > hyper_params["learning-starts"] and t % hyper_params["target-update-freq"] == 0:
-            agent.update_target_network()
+            if hyper_params["first"]:
+                agent.fr_update_target_network()
+            else:
+                agent.ar_update_target_network()
 
         num_episodes = len(episode_rewards) - 1
         print(f' [Episode {num_episodes}] [Step {t}/{hyper_params["num-steps"]} Reward] : {episode_rewards[-1]} | [Max Reward] : {max(episode_rewards[:-1])} | [Action] : {action} | [Loss] : {loss:.4f} | [Eps] : {eps_threshold:.4f}'"\r", end="", flush=True)
-        
+    hyper_params["first"] = False
     print('\n')
+    
+    return agent
     
 
 class OursAgent:
@@ -62,22 +70,33 @@ class OursAgent:
 
         self.policy_network = DQN(observation_space, action_space).to(device)
         self.target_network = DQN(observation_space, action_space).to(device)
-        self.update_target_network()
+        self.fr_update_target_network()
         self.target_network.eval()
-
+        self.previous_policy_network = copy.deepcopy(self.policy_network)
         self.optimizer = torch.optim.Adam(self.policy_network.parameters()
-            , lr=lr)        
+            , lr=0.0000625, eps=1.5e-4)  
         self.device = device
+        self.ema_decay = 0.99
+        self.cos = torch.nn.CosineSimilarity(dim=1, eps=1e-6)
+        self.temperature = 0.07
+        self.mu = 5.0
 
-    def optimise_loss(self, loss1, loss2):
-        loss = loss1 + loss2
+    def fr_optimise_loss(self):
+        loss = self.calculate_td_loss()
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
         return loss.item()
-
-    def calculate_constrasive_loss(self):
-        device = self.device
+    
+    def ar_optimise_loss(self):
+        loss1 = self.calculate_td_loss()
+        loss2 = self.calculate_contrastive_loss()
+        self.previous_policy_network = copy.deepcopy(self.policy_network)
+        loss = loss1 + self.mu*loss2
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        return loss.item()
     
     def calculate_td_loss(self):
         device = self.device
@@ -102,23 +121,52 @@ class OursAgent:
                 max_next_q_values = next_q_values.gather(1, max_next_action.unsqueeze(1)).squeeze()
             target_q_values = rewards + (1 - dones) * self.gamma * max_next_q_values
 
-        input_q_values = self.policy_network(states)
+        input_q_values, _ = self.policy_network(states)
         input_q_values = input_q_values.gather(1, actions.unsqueeze(1)).squeeze()
 
-        loss = F.mse_loss(input_q_values, target_q_values)
+        loss = F.smooth_l1_loss(input_q_values, target_q_values)
 
         del states
         del next_states
+        
         return loss
 
-    def update_target_network(self):
+    def calculate_contrastive_loss(self):
+        
+        device = self.device
+        states, _, _, _, _ = self.memory.sample(self.batch_size)
+        states = np.array(states) / 255.0
+        states = torch.from_numpy(states).float().to(device)
+        _, prev_feature =self.previous_policy_network(states)
+        _, curr_feature = self.policy_network(states)
+        _, target_feature = self.target_network(states)
+        
+        posi = self.cos(target_feature, curr_feature)
+        logits = posi.reshape(-1, 1)
+        nega = self.cos(curr_feature, prev_feature)
+        logits = torch.cat((logits, nega.reshape(-1, 1)),dim=1)
+        logits = logits / self.temperature
+        labels = torch.zeros(states.size(0)).to(device).long()
+        loss = F.cross_entropy(logits, labels)
+        
+        return loss
+        
+    def fr_update_target_network(self):
         self.target_network.load_state_dict(self.policy_network.state_dict())
 
+    def ar_update_target_network(self):
+        policy = copy.deepcopy(self.policy_network.state_dict())
+        target = copy.deepcopy(self.target_network.state_dict())
+        for key in policy.keys():
+            target[key] = self.ema_decay * target[key] + (1-self.ema_decay) * policy[key]
+        self.target_network.load_state_dict(target)
+        self.ema_decay *= 0.99
+    
     def act(self, state: np.ndarray):
         device = self.device
         state = np.array(state) / 255.0
         state = torch.from_numpy(state).float().unsqueeze(0).to(device)
         with torch.no_grad():
-            q_values = self.policy_network(state)
+            q_values, _ = self.policy_network(state)
             _, action = q_values.max(1)
             return action.item()

@@ -14,7 +14,7 @@ def init_env(env_name, test):
     if test:
         env = gym.make(env_name, full_action_space=True, frameskip=1)
     else:
-        env = gym.make(env_name, full_action_space=True, frameskip=1)
+        env = gym.make(env_name, full_action_space=False, frameskip=1)
     env_ = gym.make(env_name, full_action_space=True, frameskip=1)
     env.seed(42)
 
@@ -28,6 +28,17 @@ def init_env(env_name, test):
     env = FrameStack(env, 4)
     
     return env, env_.action_space
+
+def weight_updates_test(agent, action_space):
+    current_weight = agent.policy_network.classifier.weight.data
+    current_bias = agent.policy_network.classifier.bias.data
+    agent.policy_network.classifier = torch.nn.Linear(512, action_space.n).cuda()  
+    for i in range(len(current_weight)):
+        agent.policy_network.classifier.weight.data[i] = current_weight[i]
+        agent.policy_network.classifier.bias.data[i] = current_bias[i]
+        
+    return agent
+    
     
 def init_agent(hyper_params, action_space, env, args):
     replay_buffer = ReplayBuffer(hyper_params["replay-buffer-size"])
@@ -72,17 +83,16 @@ def test_all(agent, envs):
         
 
 def test(agent, name, env):
-    state = env.reset()
-    
     rewards = []
-    for i in range(100):
+    for i in range(5):
         reward_done = 0
+        state = env.reset()
         while True:
             action = agent.act(state)
             next_state, reward, done, _, info = env.step(action)
             reward_done += reward
             state = next_state
-            
+            print(f'Env Name : {name} | Current Reward : {reward_done}'"\r", end="", flush=True)
             if done == True:
                 break
         rewards.append(reward_done)

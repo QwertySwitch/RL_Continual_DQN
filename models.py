@@ -60,11 +60,40 @@ class ReplayBuffer:
         indices = np.random.randint(0, len(self._storage) - 1, size=batch_size)
         return self._encode_sample(indices)
 
-
 class DQN(nn.Module):
+    def __init__(self, state, actions):
+        super(DQN, self).__init__()
+
+        self.conv1 = nn.Conv2d(4, 32, 8, stride=4)
+        # self.bn1 = nn.BatchNorm2d(32)
+        self.conv2 = nn.Conv2d(32, 64, 4, stride=2)
+        # self.bn2 = nn.BatchNorm2d(64)
+        self.conv3 = nn.Conv2d(64, 64, 3, stride=1)
+        # self.bn3 = nn.BatchNorm2d(64)
+        self.fc1 = nn.Linear(7 * 7 * 64, 1024)
+        self.fc2 = nn.Linear(1024, actions.n)
+        
+        self.proj = nn.Linear(in_features=64*7*7, out_features=512)
+
+        nn.init.kaiming_normal_(self.conv1.weight, nonlinearity='leaky_relu')
+        nn.init.kaiming_normal_(self.conv2.weight, nonlinearity='leaky_relu')
+        nn.init.kaiming_normal_(self.conv3.weight, nonlinearity='leaky_relu')
+        nn.init.kaiming_normal_(self.fc1.weight, nonlinearity='leaky_relu')
+        nn.init.kaiming_normal_(self.fc2.weight, nonlinearity='leaky_relu')
+
+    def forward(self, x):
+        x = F.leaky_relu(self.conv1(x), 0.01)
+        x = F.leaky_relu(self.conv2(x), 0.01)
+        x = F.leaky_relu(self.conv3(x), 0.01)
+        feature = x.view(x.size()[0],-1)
+        proj = F.leaky_relu(self.proj(feature), 0.01)
+        x = F.leaky_relu(self.fc1(feature), 0.01)
+        return self.fc2(x), F.normalize(proj, p=2, dim=1)
+
+class DQN2(nn.Module):
     def __init__(self,
                  observation_space: spaces.Box,
-                 action_space: spaces.Discrete):
+                 action_space: spaces.Discrete):                                                                                             
         super().__init__()
         assert type(
             observation_space) == spaces.Box, 'observation_space must be of type Box'
@@ -82,13 +111,13 @@ class DQN(nn.Module):
             nn.LeakyReLU(0.01)
         )
         self.proj = nn.Linear(in_features=64*7*7, out_features=512)
-        self.fc = nn.Sequential(
+        self.fc1 = nn.Sequential(
             nn.Linear(in_features=64*7*7 , out_features=512),
-            nn.ReLU(),
-            nn.Linear(in_features=512, out_features=action_space.n)
+            nn.ReLU()
         )
+        self.classifier = nn.Linear(in_features=512, out_features=action_space.n)
 
     def forward(self, x):
         conv_out = self.encoder(x).view(x.size()[0],-1)
         proj = self.proj(conv_out)
-        return self.fc(conv_out), F.normalize(proj, p=2, dim=1)
+        return self.classifier(self.fc1(conv_out)), F.normalize(proj, p=2, dim=1)
