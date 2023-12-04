@@ -22,7 +22,7 @@ def train_dqn(agent, env, hyper_params):
             action = agent.act(state)
         else:
             action = env.action_space.sample()
-        next_state, reward, done, _, info = env.step(action)
+        next_state, reward, done, info = env.step(action)
         agent.memory.add(state, action, reward, next_state, float(done))
         state = next_state
         episode_rewards[-1] += reward
@@ -106,6 +106,15 @@ class DQNAgent:
     def update_target_network(self):
         self.target_network.load_state_dict(self.policy_network.state_dict())
 
+    def exploit(self, state: np.ndarray):
+        device = self.device
+        state = np.array(state) / 255.0
+        state = torch.from_numpy(state).float().unsqueeze(0).to(device)
+        with torch.no_grad():
+            q_values, _ = self.policy_network(state)
+            _, action = q_values.max(1)
+            return action.item()
+    
     def act(self, state: np.ndarray):
         device = self.device
         state = np.array(state) / 255.0
